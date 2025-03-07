@@ -330,7 +330,7 @@ function translateRole(role) {
     'witch': 'Bruja',
     'hunter': 'Cazador',
     'girl': 'Niña',
-    'cupid': 'Cúpido',
+    'cupid': 'Cupido',
     'fox': 'Zorro',
   };
   return roles[role] || role;
@@ -340,11 +340,11 @@ function getRoleDescription(role) {
   const descriptions = {
     'werewolf': 'Tu objetivo es eliminar a todos los aldeanos.',
     'villager': 'Tu objetivo es descubrir quiénes son los lobos.',
-    'seer': 'Puedes descubrir el rol de un jugador.',
+    'seer': 'Puedes descubrir el rol de un jugador al inicio de cada ronda.',
     'doctor': 'Puedes proteger a un jugador del ataque de los lobos.',
-    'witch': 'Usa pociones para revivir o matar.',
-    'hunter': 'Si mueres, elimina a un jugador.',
-    'girl': 'Observa en silencio.',
+    'witch': 'Usa pociones para revivir o matar en función de lo que te diga la madre.',
+    'hunter': 'Si mueres, puedes eliminar a un jugador directamente.',
+    'girl': 'En la ronda de los lobos puedes abrir los ojos SIN QUE SE NOTE y recopilar información',
     'cupid': 'Une a dos jugadores en amor.',
     'fox': 'Investiga si hay lobos cerca.',
   };
