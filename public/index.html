@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>los lobos del chorraero</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/png" href="images/favicon.png">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <script src="http://localhost:25565/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>los lobos del chorraero</h1>
+    </header>
+    
+    <div id="messageContainer" class="message-container"></div>
+    
+    <div id="homeScreen" class="screen">
+      <div class="game-logo">
+        <img src="images/logo.png" alt="los lobos del chorraero">
+      </div>
+      <div class="menu-buttons">
+        <button id="createGameButton" class="main-button"><i class="fas fa-plus"></i> Crear partida</button>
+        <button id="joinGameButton" class="main-button"><i class="fas fa-sign-in-alt"></i> Unirse a partida</button>
+      </div>
+      <div id="createGameForm" class="form-container" style="display: none;">
+        <h2>Crear una nueva partida</h2>
+        <div class="input-group">
+          <label for="playerNameCreate">Tu nombre:</label>
+          <input type="text" id="playerNameCreate" placeholder="Introduce tu nombre">
+        </div>
+        <button id="submitCreateGame" class="action-button">Crear partida</button>
+      </div>
+      <div id="joinGameForm" class="form-container" style="display: none;">
+        <h2>Unirse a una partida</h2>
+        <div class="input-group">
+          <label for="playerNameJoin">Tu nombre:</label>
+          <input type="text" id="playerNameJoin" placeholder="Introduce tu nombre">
+        </div>
+        <div class="input-group">
+          <label for="gameCode">Código de partida:</label>
+          <input type="text" id="gameCode" placeholder="Introduce el código" autocapitalize="characters">
+        </div>
+        <button id="submitJoinGame" class="action-button">Unirse a partida</button>
+      </div>
+      <div class="game-rules">
+        <h3>Reglas básicas</h3>
+        <p>El juego se divide en dos equipos: Aldeanos y Lobos. El anfitrión controla el juego y asigna roles secretos a los jugadores.</p>
+        <p>Los jugadores pueden votar durante el día. El anfitrión gestiona el estado de los jugadores y decide el flujo del juego.</p>
+      </div>
+    </div>
+    
+    <div id="lobbyScreen" class="screen" style="display: none;">
+      <h2>Sala de espera</h2>
+      <div class="game-code">
+        <h3>Código de partida</h3>
+        <div class="code-display" id="gameCodeDisplay">ABCDEF</div>
+        <p>Comparte este código con otros jugadores</p>
+      </div>
+      <div class="players-container">
+        <h3>Jugadores</h3>
+        <div id="playerList" class="player-list"></div>
+      </div>
+      <button id="startButton" class="main-button" style="display: none;"><i class="fas fa-play"></i> Comenzar partida</button>
+    </div>
+    
+    <div id="gameScreen" class="screen" style="display: none;">
+      <div id="gameContainer" class="game-container">
+        <div class="game-info">
+          <div class="day-info">
+            <div><i class="fas fa-calendar-day"></i> Día: <span id="gameDay">1</span></div>
+            <div><i class="fas fa-clock"></i> <span id="gameTime">Noche</span></div>
+          </div>
+          <div class="role-info">
+            <h3>Tu rol: <span id="playerRole">Desconocido</span></h3>
+            <div class="role-details">
+              <div class="role-image card" id="roleCard">
+                <img src="images/default-card.png" class="card-back" alt="Card Back">
+                <img id="roleImage" src="images/villager.png" class="card-front" alt="Rol">
+                <img id="roleCross" src="images/cross.png" class="cross" style="display: none;">
+              </div>
+              <p id="roleDescription">Haz clic en la carta para voltearla</p>
+            </div>
+          </div>
+        </div>
+        <div class="gameplay-area">
+          <h3>Jugadores vivos</h3>
+          <div id="gamePlayersList" class="game-players-list"></div>
+          <div id="actionButtons" class="action-buttons"></div>
+        </div>
+      </div>
+    </div>
+    
+    <div id="hostScreen" class="screen" style="display: none;">
+      <h2>Panel de Control del Anfitrión</h2>
+      <div id="hostContainer" class="host-container">
+        <div class="game-info">
+          <div class="day-info">
+            <div><i class="fas fa-calendar-day"></i> Día: <span id="hostGameDay">1</span></div>
+            <div><i class="fas fa-clock"></i> <span id="hostGameTime">Noche</span></div>
+            <div class="turn-order">
+              <h3>Orden de Turnos</h3>
+              <ul>
+                <li>Cupido (1ra Ronda)</li>
+                <li>Vidente</li>
+                <li>Protector</li>
+                <li>Zorro</li>
+                <li>Lobos</li>
+                <li>Bruja</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="host-players">
+          <h3>Jugadores</h3>
+          <div id="hostPlayersList" class="host-players-list"></div>
+        </div>
+        <div class="host-controls">
+          <button id="hostManagePlayers" class="action-button"><i class="fas fa-users"></i> Gestionar Jugadores</button>
+          <button id="hostShowRoles" class="action-button"><i class="fas fa-eye"></i> Mostrar Rol</button>
+          <button id="hostAdvancePhase" class="action-button"><i class="fas fa-forward"></i> Avanzar Fase</button>
+        </div>
+      </div>
+    </div>
+    
+    <div id="gameOverScreen" class="screen" style="display: none;">
+      <h2>Fin del juego</h2>
+      <div class="game-result">
+        <h3 id="gameOverMessage">¡Los Lobos han ganado!</h3>
+      </div>
+      <div class="game-roles">
+        <h3>Roles de los jugadores</h3>
+        <div id="gameOverRoles" class="roles-list"></div>
+      </div>
+      <button id="playAgainButton" class="main-button"><i class="fas fa-redo"></i> Jugar de nuevo</button>
+    </div>
+
+    <div id="managePlayersModal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <h3>Gestionar Jugadores</h3>
+        <div id="managePlayersList"></div>
+        <button class="action-button" onclick="closeModal()">Cerrar</button>
+      </div>
+    </div>
+
+    <div id="playerRolesModal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <h3>Seleccionar Jugador</h3>
+        <div id="playerRolesList"></div>
+        <button class="action-button" onclick="closeModal()">Cerrar</button>
+      </div>
+    </div>
+
+    <div id="roleOverlay" class="role-overlay" style="display: none;">
+      <div class="role-overlay-content">
+        <h2 id="overlayPlayerName"></h2>
+        <h1 id="overlayPlayerRole"></h1>
+        <img id="overlayRoleImage" src="images/villager.png" alt="Rol">
+      </div>
+    </div>
+  </div>
+  
+  <footer>
+    <p>los lobos del chorraero © 2025 - un juego de goyo</p>
+  </footer>
+  
+  <script src="client.js"></script>
+</body>
+</html>
