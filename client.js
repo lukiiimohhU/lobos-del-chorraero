@@ -6,9 +6,10 @@ let isHost = false;
 let isAlive = true;
 let cardFlipped = false;
 let selectedPlayerId = null;
+let hasVoted = false;
 
 function connectToServer() {
-  socket = io('https://juegolobo-backend.onrender.com', { // Reemplaza con la URL de tu backend
+  socket = io('https://juegolobo-backend.onrender.com', { // URL BACKEND
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
@@ -30,9 +31,28 @@ function connectToServer() {
   socket.on('reconnect', () => {
     console.log('Reconectado al servidor con socket.id:', socket.id);
     restoreOrStartSession();
-    if (playerId && gameId && isHost) socket.emit('updateHostSocket', { gameId, playerId });
+    if (playerId && gameId && isHost) {
+      socket.emit('updateHostSocket', { gameId, playerId });
+      console.log('Actualizando socket del host tras reconexión:', { gameId, playerId });
+    }
+  });
+
+  socket.on('playerKicked', (data) => {
+    showMessage(`${data.name} ha sido expulsado de la partida`, 'warning');
+    handleUpdatePlayers(data.players);
   });
   
+  socket.on('gameCancelled', () => {
+    localStorage.removeItem('gameSession');
+    localStorage.removeItem('playerId');
+    gameId = null;
+    playerId = null;
+    isHost = false;
+    showScreen('home');
+    showMessage('La sala ha sido cancelada por el anfitrión', 'warning');
+  });
+
+
   socket.on('gameCreated', handleGameCreated);
   socket.on('gameJoined', handleGameJoined);
   socket.on('error', handleError);
@@ -40,7 +60,10 @@ function connectToServer() {
   socket.on('gameStarted', handleGameStarted);
   socket.on('hostGameStarted', handleHostGameStarted);
   socket.on('roleAssigned', handleRoleAssigned);
-  socket.on('updateGameState', handleUpdateGameState);
+  socket.on('updateGameState', (data) => {
+    console.log('Recibido updateGameState:', data); // Depurar datos
+    handleUpdateGameState(data);
+  });
   socket.on('cardFlipped', handleCardFlipped);
   socket.on('gameOver', handleGameOver);
   socket.on('playerDisconnected', handlePlayerDisconnected);
@@ -48,10 +71,52 @@ function connectToServer() {
   socket.on('sessionRestored', handleSessionRestored);
   socket.on('gameReset', handleGameReset);
   socket.on('displayPlayerRole', handleDisplayPlayerRole);
-  socket.on('playersList', handlePlayersList);
+  socket.on('playersList', (players) => {
+    const list = document.getElementById('managePlayersList');
+    if (!list) {
+      console.error('No se encontró #managePlayersList');
+      return;
+    }
+    console.log('Datos crudos de playersList:', players);
+    const nonHostPlayers = players.filter(p => !p.isHost && !p.disconnected);
+    console.log('Jugadores no anfitriones en managePlayers:', nonHostPlayers);
+    list.innerHTML = '';
+    if (nonHostPlayers.length === 0) {
+      list.innerHTML = '<p>No hay jugadores para mostrar.</p>';
+    }
+    nonHostPlayers.forEach(player => {
+      const item = document.createElement('div');
+      item.className = 'manage-player-item';
+      const toggleButton = document.createElement('button');
+      toggleButton.className = `toggle-status ${player.alive ? '' : 'revive'}`;
+      toggleButton.dataset.id = player.id;
+      toggleButton.textContent = player.alive ? 'Matar' : 'Revivir';
+  
+      item.innerHTML = `<span>${player.name} - ${player.alive ? 'Vivo' : 'Muerto'}</span>`;
+      item.appendChild(toggleButton);
+      list.appendChild(item);
+  
+      toggleButton.addEventListener('click', () => {
+        const playerId = toggleButton.dataset.id;
+        const isCurrentlyAlive = toggleButton.textContent === 'Matar';
+        const newAlive = !isCurrentlyAlive;
+  
+        toggleButton.textContent = newAlive ? 'Matar' : 'Revivir';
+        toggleButton.className = `toggle-status ${newAlive ? '' : 'revive'}`;
+        const span = toggleButton.previousElementSibling;
+        span.textContent = `${player.name} - ${newAlive ? 'Vivo' : 'Muerto'}`;
+  
+        socket.emit('updatePlayerStatus', { gameId, playerId, alive: newAlive });
+      });
+    });
+  });
   socket.on('voteUpdate', handleVoteUpdate);
-  socket.on('dayEnd', handleDayEnd);
-  socket.on('nightEnd', handleNightEnd);
+  socket.on('dayEnd', (data) => {
+    showMessage(data.message, 'error');
+  });
+  socket.on('nightEnd', (data) => {
+    showMessage(data.message, 'error');
+  });
 }
 
 function restoreOrStartSession() {
@@ -60,8 +125,11 @@ function restoreOrStartSession() {
   const gameId = savedData.gameId;
   const isHost = savedData.isHost || false;
 
+  console.log('Restaurando sesión:', { playerId, gameId, isHost });
+
   if (playerId && gameId) {
     socket.emit('restoreSession', { playerId, gameId });
+    document.getElementById('gameCodeDisplay').textContent = gameId;
   } else {
     showScreen('home');
   }
@@ -74,6 +142,117 @@ function saveSession() {
   }
 }
 
+function toggleKickList() {
+  const kickList = document.getElementById('kickList');
+  if (kickList.style.display === 'none' || kickList.style.display === '') {
+    socket.emit('requestPlayers', gameId);
+    socket.once('playersList', (players) => {
+      kickList.innerHTML = '';
+      const nonHostPlayers = players.filter(p => !p.isHost && !p.disconnected);
+      nonHostPlayers.forEach(player => {
+        const playerItem = document.createElement('div');
+        playerItem.className = 'kick-item';
+        playerItem.innerHTML = `
+          ${player.name}
+          <button class="kick-player-button" data-id="${player.id}">Expulsar</button>
+        `;
+        kickList.appendChild(playerItem);
+      });
+      document.querySelectorAll('.kick-player-button').forEach(button => {
+        button.addEventListener('click', () => {
+          const targetId = button.dataset.id;
+          socket.emit('kickPlayer', { gameId, targetId });
+          kickList.style.display = 'none';
+        });
+      });
+      kickList.style.display = 'block';
+    });
+  } else {
+    kickList.style.display = 'none';
+  }
+}
+
+function handleKickPlayersList(players) {
+  const kickList = document.getElementById('kickList');
+  kickList.innerHTML = '';
+  const nonHostPlayers = players.filter(p => !p.isHost && !p.disconnected);
+  nonHostPlayers.forEach(player => {
+    const playerItem = document.createElement('div');
+    playerItem.className = 'kick-item';
+    playerItem.innerHTML = `
+      ${player.name}
+      <button class="kick-player-button" data-id="${player.id}">Expulsar</button>
+    `;
+    kickList.appendChild(playerItem);
+  });
+
+  // Añadir evento a los botones de expulsión
+  document.querySelectorAll('.kick-player-button').forEach(button => {
+    button.addEventListener('click', () => {
+      const targetId = button.dataset.id;
+      socket.emit('kickPlayer', { gameId, targetId });
+      kickList.style.display = 'none'; // Ocultar el listado tras expulsar
+    });
+  });
+}
+
+function initializeGameEvents() {
+  if (isHost) {
+    const advancePhaseButton = document.getElementById('hostAdvancePhase');
+    const managePlayersButton = document.getElementById('hostManagePlayers');
+    const showRolesButton = document.getElementById('hostShowRoles');
+    const returnToLobbyButton = document.getElementById('hostReturnToLobby'); // Nuevo botón
+
+    console.log('Inicializando eventos del host:', { advancePhaseButton, managePlayersButton, showRolesButton, returnToLobbyButton });
+
+    if (advancePhaseButton) {
+      advancePhaseButton.removeEventListener('click', advancePhaseHandler);
+      advancePhaseButton.addEventListener('click', advancePhaseHandler);
+    } else {
+      console.error('No se encontró #hostAdvancePhase');
+    }
+
+    if (managePlayersButton) {
+      managePlayersButton.removeEventListener('click', showManagePlayers);
+      managePlayersButton.addEventListener('click', showManagePlayers);
+    } else {
+      console.error('No se encontró #hostManagePlayers');
+    }
+
+    if (showRolesButton) {
+      showRolesButton.removeEventListener('click', showPlayerRoles);
+      showRolesButton.addEventListener('click', showPlayerRoles);
+    } else {
+      console.error('No se encontró #hostShowRoles');
+    }
+
+    if (returnToLobbyButton) {
+      returnToLobbyButton.removeEventListener('click', playAgain); // Reutilizamos playAgain
+      returnToLobbyButton.addEventListener('click', playAgain);
+    } else {
+      console.error('No se encontró #hostReturnToLobby');
+    }
+  } else {
+    const roleCard = document.getElementById('roleCard');
+    if (roleCard) {
+      roleCard.removeEventListener('click', flipCard);
+      roleCard.addEventListener('click', flipCard);
+    } else {
+      console.error('No se encontró #roleCard');
+    }
+  }
+}
+
+// Función auxiliar para el evento de avanzar fase
+function advancePhaseHandler() {
+  console.log('Botón Avanzar Fase clicado', { gameId });
+  if (gameId) {
+    socket.emit('advancePhase', gameId);
+  } else {
+    console.error('gameId no está definido al intentar avanzar fase');
+  }
+}
+
 function handleGameCreated(data) {
   gameId = data.gameId;
   playerId = data.playerId;
@@ -81,7 +260,21 @@ function handleGameCreated(data) {
   saveSession();
   document.getElementById('gameCodeDisplay').textContent = gameId;
   showScreen('lobby');
-  document.getElementById('startButton').style.display = 'block';
+
+  const kickContainer = document.getElementById('kickContainer');
+  kickContainer.style.display = 'block';
+  kickContainer.innerHTML = `
+    <div class="button-container">
+      <button id="startButton" class="main-button"><i class="fas fa-play"></i> Comenzar partida</button>
+      <button id="kickButton" class="main-button kick-button">Expulsar</button>
+      <button id="cancelButton" class="main-button cancel-button"><i class="fas fa-times"></i> Cancelar Sala</button>
+    </div>
+    <div id="kickList" class="kick-list" style="display: none;"></div>
+  `;
+  
+  document.getElementById('startButton').addEventListener('click', startGame);
+  document.getElementById('kickButton').addEventListener('click', toggleKickList);
+  document.getElementById('cancelButton').addEventListener('click', cancelGame);
 }
 
 function handleGameJoined(data) {
@@ -91,7 +284,11 @@ function handleGameJoined(data) {
   saveSession();
   document.getElementById('gameCodeDisplay').textContent = gameId;
   showScreen('lobby');
-  document.getElementById('startButton').style.display = 'none';
+
+  // Ocultar el contenedor de botones para no anfitriones
+  const kickContainer = document.getElementById('kickContainer');
+  kickContainer.style.display = 'none';
+  kickContainer.innerHTML = ''; // Limpiar contenido para evitar residuos
 }
 
 function handleSessionRestored(data) {
@@ -100,20 +297,51 @@ function handleSessionRestored(data) {
   playerRole = data.role;
   isHost = data.isHost;
   isAlive = data.alive;
-  cardFlipped = false; // Reiniciar estado de la carta
+  cardFlipped = false;
   saveSession();
+
+  console.log('Sesión restaurada:', { gameId, playerId, isHost, socketId: socket.id });
+
+  document.getElementById('gameCodeDisplay').textContent = gameId;
+
   if (isHost) {
-    showScreen('host');
-    handleHostGameStarted({ players: data.state.players });
+    if (data.state.state === 'lobby') {
+      showScreen('lobby');
+      const kickContainer = document.getElementById('kickContainer');
+      kickContainer.style.display = 'block';
+      kickContainer.innerHTML = `
+        <div class="button-container">
+          <button id="startButton" class="main-button"><i class="fas fa-play"></i> Comenzar partida</button>
+          <button id="kickButton" class="main-button kick-button">Expulsar</button>
+          <button id="cancelButton" class="main-button cancel-button"><i class="fas fa-times"></i> Cancelar Sala</button>
+        </div>
+        <div id="kickList" class="kick-list" style="display: none;"></div>
+      `;
+      document.getElementById('startButton').addEventListener('click', startGame);
+      document.getElementById('kickButton').addEventListener('click', toggleKickList);
+      document.getElementById('cancelButton').addEventListener('click', cancelGame);
+    } else {
+      showScreen('host');
+      handleHostGameStarted({ players: data.state.players });
+      handleUpdateGameState(data.state);
+      initializeGameEvents(); // Ya está aquí
+    }
+    // Actualizar el socket del host en el servidor
+    socket.emit('updateHostSocket', { gameId, playerId });
   } else if (data.state.state === 'lobby') {
     showScreen('lobby');
+    const kickContainer = document.getElementById('kickContainer');
+    kickContainer.style.display = 'none';
+    kickContainer.innerHTML = '';
   } else {
     showScreen('game');
     handleRoleAssigned({ role: playerRole });
     handleUpdateGameState(data.state);
-    // Reasignar evento de volteo de carta
-    document.getElementById('roleCard').removeEventListener('click', flipCard);
-    document.getElementById('roleCard').addEventListener('click', flipCard);
+    const roleCard = document.getElementById('roleCard');
+    roleCard.classList.remove('flipping');
+    document.getElementById('playerRole').textContent = '-';
+    document.getElementById('roleDescription').textContent = 'Haz clic en la carta para voltearla';
+    initializeGameEvents();
   }
   showMessage('Sesión restaurada con éxito', 'success');
 }
@@ -126,14 +354,27 @@ function handleGameReset(data) {
   saveSession();
   showScreen('lobby');
   document.getElementById('gameCodeDisplay').textContent = gameId;
-  document.getElementById('startButton').style.display = isHost ? 'block' : 'none';
-  handleUpdatePlayers(data.players);
-  if (!isHost) {
-    const roleCard = document.getElementById('roleCard');
-    roleCard.classList.remove('flipping');
-    document.getElementById('playerRole').textContent = '-';
-    document.getElementById('roleDescription').textContent = 'Haz clic en la carta para voltearla';
+
+  const kickContainer = document.getElementById('kickContainer');
+  if (isHost) {
+    kickContainer.style.display = 'block';
+    kickContainer.innerHTML = `
+      <div class="button-container">
+        <button id="startButton" class="main-button"><i class="fas fa-play"></i> Comenzar partida</button>
+        <button id="kickButton" class="main-button kick-button">Expulsar</button>
+        <button id="cancelButton" class="main-button cancel-button"><i class="fas fa-times"></i> Cancelar Sala</button>
+      </div>
+      <div id="kickList" class="kick-list" style="display: none;"></div>
+    `;
+    document.getElementById('startButton').addEventListener('click', startGame);
+    document.getElementById('kickButton').addEventListener('click', toggleKickList);
+    document.getElementById('cancelButton').addEventListener('click', cancelGame);
+  } else {
+    kickContainer.style.display = 'none';
+    kickContainer.innerHTML = '';
   }
+
+  handleUpdatePlayers(data.players);
   showMessage('Partida reiniciada', 'success');
 }
 
@@ -142,10 +383,14 @@ function handlePlayerReconnected(data) {
 }
 
 function handleError(data) {
-  showMessage(data.message, 'error');
-  localStorage.removeItem('gameSession');
-  localStorage.removeItem('playerId');
-  showScreen('home');
+  if (data.type === 'insufficientPlayers') {
+    showMessage(data.message, 'error'); // Solo mostrar notificación
+  } else {
+    showMessage(data.message, 'error');
+    localStorage.removeItem('gameSession');
+    localStorage.removeItem('playerId');
+    showScreen('home'); // Solo para errores graves
+  }
 }
 
 function handleUpdatePlayers(players) {
@@ -164,27 +409,42 @@ function handleUpdatePlayers(players) {
   }
 }
 
+function cancelGame() {
+  socket.emit('cancelGame', { gameId });
+}
+
 function handleGameStarted() {
-  if (!isHost) showScreen('game');
+  if (!isHost) {
+    showScreen('game');
+    cardFlipped = false; // Reiniciar estado
+    const roleCard = document.getElementById('roleCard');
+    roleCard.classList.remove('flipping');
+    document.getElementById('playerRole').textContent = '-';
+    document.getElementById('roleDescription').textContent = 'Haz clic en la carta para voltearla';
+    initializeGameEvents();
+  }
   showMessage('¡El juego ha comenzado!', 'info');
 }
 
 function handleHostGameStarted(data) {
   showScreen('host');
+  initializeGameEvents(); // Inicializar eventos al empezar
   showMessage('¡Controla la partida desde aquí!', 'info');
   document.getElementById('hostGameDay').textContent = 1;
   document.getElementById('hostGameTime').textContent = 'Noche';
-  updateHostPlayersList(data.players); // Usar los datos con roles
+  updateHostPlayersList(data.players);
 }
 
 function handleRoleAssigned(data) {
   playerRole = data.role;
   const roleElement = document.getElementById('playerRole');
   const roleImageElement = document.getElementById('roleImage');
-  roleElement.textContent = '-'; // Inicialmente un guión
+  cardFlipped = false; // Asegurar estado inicial
+  roleElement.textContent = '-';
   roleImageElement.src = `images/${playerRole}.png`;
   roleImageElement.alt = translateRole(playerRole);
   document.getElementById('roleDescription').textContent = 'Haz clic en la carta para voltearla';
+  document.getElementById('roleCard').classList.remove('flipping'); // Quitar clase flipping
 }
 
 function handleCardFlipped() {
@@ -204,10 +464,18 @@ function handleCardFlipped() {
 
 function handleUpdateGameState(state) {
   if (isHost) {
+    showScreen('host');
     document.getElementById('hostGameDay').textContent = state.day;
     document.getElementById('hostGameTime').textContent = translateTime(state.time);
+    //MIRAR:
+    console.log(' PREVIO Jugadores recibidos en updateGameState:', state.players);
     updateHostPlayersList(state.players);
+    console.log(' POSTERIOR Jugadores recibidos en updateGameState:', state.players);
+    //updateHostPlayersList(data.players);
   } else {
+    console.log(' PREVIO Jugadores recibidos en updateGameState:', state.players);
+    handleUpdatePlayers(state.players);
+    console.log(' POSTERIOR Jugadores recibidos en updateGameState:', state.players);
     document.getElementById('gameDay').textContent = state.day;
     document.getElementById('gameTime').textContent = translateTime(state.time);
     isAlive = state.players.find(p => p.id === playerId)?.alive ?? true;
@@ -270,20 +538,28 @@ function handleDayEnd(data) {
 }
 
 function updateHostPlayersList(players) {
-  const hostPlayersList = document.getElementById('hostPlayersList');
-  hostPlayersList.innerHTML = '';
-  players.forEach(player => {
-    if (!player.disconnected && !player.isHost) {
-      const playerItem = document.createElement('div');
-      playerItem.className = 'player-item';
-      // Siempre mostrar la carta, incluso si el rol es null (usará null.png si no está asignado)
-      const roleImage = player.role || 'default-card'; // Usa default-card si el rol es null
-      playerItem.innerHTML = `
-        <img src="images/${roleImage}.png" class="role-icon-small" alt="${translateRole(player.role || 'Desconocido')}">
-        ${player.name}: ${player.alive ? 'Vivo' : 'Muerto'}
-      `;
-      hostPlayersList.appendChild(playerItem);
-    }
+  const playerList = document.getElementById('hostPlayerList');
+  if (!playerList) {
+    console.error('El elemento #hostPlayerList no se encuentra en el DOM');
+    return;
+  }
+
+  console.log('Jugadores recibidos:', players); // Depurar datos crudos
+  playerList.innerHTML = '';
+  const nonHostPlayers = players.filter(player => !player.isHost);
+  console.log('Jugadores no anfitriones:', nonHostPlayers); // Verificar filtro
+  nonHostPlayers.forEach(player => {
+    const playerItem = document.createElement('div');
+    playerItem.className = 'host-player-item';
+
+    const roleImage = player.role ? `images/${player.role}.png` : 'images/player.png';
+    const roleText = player.role ? translateRole(player.role) : 'Sin rol';
+
+    playerItem.innerHTML = `
+      <img src="${roleImage}" alt="${roleText}" class="player-icon">
+      <span>${player.name} (${roleText}) - ${player.alive ? 'Vivo' : 'Muerto'}</span>
+    `;
+    playerList.appendChild(playerItem);
   });
 }
 
@@ -298,6 +574,10 @@ function handleGameOver(data) {
   showScreen('gameOver');
   localStorage.removeItem('gameSession');
   localStorage.removeItem('playerId');
+
+  // Mostrar el botón "Jugar de nuevo" solo para el anfitrión
+  const playAgainButton = document.getElementById('playAgainButton');
+  playAgainButton.style.display = isHost ? 'block' : 'none';
 }
 
 function handlePlayerDisconnected(data) {
@@ -373,7 +653,7 @@ function updateControls(time) {
 
   if (time === 'day') {
     const actionText = document.createElement('div');
-    actionText.textContent = 'Vota por alguien para eliminar:';
+    actionText.textContent = hasVoted ? 'Ya has votado en esta ronda.' : 'Vota por alguien para eliminar:';
     actionText.className = 'action-text';
     actionButtons.appendChild(actionText);
 
@@ -381,11 +661,15 @@ function updateControls(time) {
     confirmButton.textContent = 'Confirmar voto';
     confirmButton.className = 'action-button';
     confirmButton.id = 'confirmButton';
-    confirmButton.disabled = true;
+    confirmButton.disabled = hasVoted || !selectedPlayerId; // Deshabilitar si ya votó o no hay selección
     confirmButton.onclick = () => {
-      if (selectedPlayerId) confirmVote();
+      if (selectedPlayerId && !hasVoted) confirmVote();
     };
     actionButtons.appendChild(confirmButton);
+
+    if (hasVoted) {
+      disablePlayerSelection(); // Asegurarse de que no pueda seleccionar más jugadores
+    }
   } else {
     const actionText = document.createElement('div');
     actionText.textContent = 'Es de noche. Espera al día para votar.';
@@ -411,8 +695,15 @@ function confirmVote() {
     showMessage('Por favor, selecciona un jugador antes de confirmar.', 'error');
     return;
   }
+  if (hasVoted) {
+    showMessage('Ya has votado en esta ronda.', 'error');
+    return;
+  }
   socket.emit('dayVote', { gameId, targetId: selectedPlayerId });
+  hasVoted = true; // Marcar que el jugador ha votado
   disablePlayerSelection();
+  const confirmButton = document.getElementById('confirmButton');
+  confirmButton.disabled = true; // Deshabilitar el botón
   showMessage(`Has votado por ${document.querySelector(`.player-item[data-id="${selectedPlayerId}"]`).textContent}`, 'info');
 }
 
@@ -428,6 +719,7 @@ function disablePlayerSelection() {
 
 function resetActionButtons() {
   selectedPlayerId = null;
+  hasVoted = false; // Reiniciar el estado de votación
   const players = document.querySelectorAll('.player-item');
   players.forEach(player => {
     player.classList.remove('selected');
@@ -441,32 +733,71 @@ function resetActionButtons() {
 }
 
 function showManagePlayers() {
+  const modal = document.getElementById('managePlayersModal');
+  const list = document.getElementById('managePlayersList');
+  
+  if (!modal || !list) {
+    console.error('No se encontraron elementos:', { modal, list });
+    return;
+  }
+
+  modal.style.display = 'block';
+  list.innerHTML = '<p>Cargando jugadores...</p>'; // Indicador de carga
   socket.emit('requestPlayers', gameId);
-  socket.once('playersList', (players) => {
-    const modal = document.getElementById('managePlayersModal');
-    const playerList = document.getElementById('managePlayersList');
-    playerList.innerHTML = '';
+
+  // Usa un listener específico y temporal
+  socket.once('playersListForManage', (players) => {
+    console.log('Datos recibidos para gestionar jugadores:', players);
     const nonHostPlayers = players.filter(p => !p.isHost && !p.disconnected);
+    console.log('Jugadores no anfitriones:', nonHostPlayers);
+    list.innerHTML = '';
+    if (nonHostPlayers.length === 0) {
+      list.innerHTML = '<p>No hay jugadores para mostrar.</p>';
+    }
     nonHostPlayers.forEach(player => {
-      const div = document.createElement('div');
-      div.className = 'player-manage-item';
-      div.innerHTML = `
-        ${player.name} (${translateRole(player.role)}) 
-        <button class="action-button" onclick="togglePlayerStatus('${player.id}', ${!player.alive})">${player.alive ? 'Marcar como Muerto' : 'Marcar como Vivo'}</button>
-      `;
-      playerList.appendChild(div);
+      const item = document.createElement('div');
+      item.className = 'manage-player-item';
+      const toggleButton = document.createElement('button');
+      toggleButton.className = `toggle-status ${player.alive ? '' : 'revive'}`;
+      toggleButton.dataset.id = player.id;
+      toggleButton.textContent = player.alive ? 'Matar' : 'Revivir';
+
+      item.innerHTML = `<span>${player.name} - ${player.alive ? 'Vivo' : 'Muerto'}</span>`;
+      item.appendChild(toggleButton);
+      list.appendChild(item);
+
+      toggleButton.addEventListener('click', () => {
+        const playerId = toggleButton.dataset.id;
+        const isCurrentlyAlive = toggleButton.textContent === 'Matar';
+        const newAlive = !isCurrentlyAlive;
+
+        toggleButton.textContent = newAlive ? 'Matar' : 'Revivir';
+        toggleButton.className = `toggle-status ${newAlive ? '' : 'revive'}`;
+        const span = toggleButton.previousElementSibling;
+        span.textContent = `${player.name} - ${newAlive ? 'Vivo' : 'Muerto'}`;
+
+        socket.emit('updatePlayerStatus', { gameId, playerId, alive: newAlive });
+      });
     });
-    modal.style.display = 'flex';
   });
 }
 
 function showPlayerRoles() {
   socket.emit('requestPlayers', gameId);
-  socket.once('playersList', (players) => {
+  socket.once('playersListForRoles', (players) => {
+    console.log('Datos recibidos para mostrar roles:', players); // Añade este log para depurar
     const modal = document.getElementById('playerRolesModal');
     const playerList = document.getElementById('playerRolesList');
+    if (!modal || !playerList) {
+      console.error('No se encontraron elementos:', { modal, playerList });
+      return;
+    }
     playerList.innerHTML = '';
     const alivePlayers = players.filter(p => !p.isHost && p.alive && !p.disconnected);
+    console.log('Jugadores vivos no anfitriones:', alivePlayers); // Añade este log
+    if (alivePlayers.length === 0) {
+      playerList.innerHTML = '<p>No hay jugadores vivos para mostrar.</p>';
+    }
     alivePlayers.forEach(player => {
       const div = document.createElement('div');
       div.className = 'player-item modal-player-item';
@@ -489,6 +820,13 @@ function togglePlayerStatus(playerId, alive) {
 function closeModal() {
   document.getElementById('managePlayersModal').style.display = 'none';
   document.getElementById('playerRolesModal').style.display = 'none';
+}
+
+function closeManagePlayers() {
+  const modal = document.getElementById('managePlayersModal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
 }
 
 function hideRoleOverlay() {
@@ -518,14 +856,32 @@ function playAgain() {
 
 document.addEventListener('DOMContentLoaded', () => {
   connectToServer();
-  document.getElementById('createGameButton').addEventListener('click', () => {
-    document.getElementById('createGameForm').style.display = 'block';
-    document.getElementById('joinGameForm').style.display = 'none';
-  });
-  document.getElementById('joinGameButton').addEventListener('click', () => {
-    document.getElementById('createGameForm').style.display = 'none';
-    document.getElementById('joinGameForm').style.display = 'block';
-  });
+
+  const createGameButton = document.getElementById('createGameButton');
+  const joinGameButton = document.getElementById('joinGameButton');
+  const createGameForm = document.getElementById('createGameForm');
+  const joinGameForm = document.getElementById('joinGameForm');
+
+  function showCreateForm(e) {
+    e.preventDefault(); // Prevenir comportamiento nativo
+    createGameForm.style.display = 'block';
+    joinGameForm.style.display = 'none';
+    console.log('Botón Crear partida tocado'); // Depuración
+  }
+
+  function showJoinForm(e) {
+    e.preventDefault(); // Prevenir comportamiento nativo
+    createGameForm.style.display = 'none';
+    joinGameForm.style.display = 'block';
+    console.log('Botón Unirse a partida tocado'); // Depuración
+  }
+
+  // Añadir eventos click y touchstart para máxima compatibilidad
+  createGameButton.addEventListener('click', showCreateForm);
+  createGameButton.addEventListener('touchstart', showCreateForm, { passive: false });
+  joinGameButton.addEventListener('click', showJoinForm);
+  joinGameButton.addEventListener('touchstart', showJoinForm, { passive: false });
+
   document.getElementById('submitCreateGame').addEventListener('click', createGame);
   document.getElementById('submitJoinGame').addEventListener('click', joinGame);
   document.getElementById('startButton').addEventListener('click', startGame);

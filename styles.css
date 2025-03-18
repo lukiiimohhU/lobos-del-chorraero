@@ -70,22 +70,39 @@ header h1 {
 .menu-buttons {
     text-align: center;
     margin: 20px 0;
+    display: flex;
+    flex-direction: column; /* Apilar por defecto en móviles */
+    gap: 10px; /* Espacio entre botones */
+    align-items: center;
+}
+  
+@media (min-width: 768px) {
+    .menu-buttons {
+      flex-direction: row; /* Horizontal en pantallas grandes */
+      justify-content: center;
+    }
+}
+
+.button-container {
+    display: flex;
+    justify-content: center;
+    gap: 10px; /* Espacio entre botones */
+    margin-top: 20px;
 }
 
 .main-button {
-    background-color: #ff4444;
+    background-color: #ff4444; /* Color rojo por defecto */
     color: white;
     border: none;
     padding: 12px 24px;
-    margin: 10px;
     border-radius: 5px;
     cursor: pointer;
     font-size: 1.1em;
     transition: background-color 0.3s;
 }
-
+  
 .main-button:hover {
-    background-color: #cc3333;
+    background-color: #cc3333; /* Rojo más oscuro al pasar el ratón */
 }
 
 .main-button i {
@@ -96,6 +113,16 @@ header h1 {
     max-width: 400px;
     margin: 20px auto;
     text-align: center;
+    display: none; /* Oculto por defecto */
+}
+
+.form-container.active {
+    display: block; /* Reforzar visibilidad */
+    position: static; /* Evitar problemas de posicionamiento absoluto */
+    width: 100%;
+    margin: 10px 0;
+    padding: 10px;
+    -webkit-overflow-scrolling: touch; /* Mejorar scroll en iOS */
 }
 
 .form-container h2 {
@@ -120,6 +147,33 @@ header h1 {
     border-radius: 5px;
     background-color: #333;
     color: white;
+}
+
+@media (max-width: 768px) {
+    .form-container.active {
+      position: relative; /* Evitar que se superponga o salga del flujo */
+      width: 100%; /* Ocupar todo el ancho */
+      max-width: none; /* Eliminar restricción de 400px */
+      margin: 10px 0; /* Espacio vertical */
+      padding: 10px; /* Ajustar padding */
+      box-sizing: border-box; /* Incluir padding en el ancho */
+    }
+  
+    .input-group input {
+      width: 100%; /* Asegurar que los inputs ocupen el ancho completo */
+      box-sizing: border-box;
+    }
+  
+    .menu-buttons {
+        flex-direction: column;
+        align-items: stretch; /* Asegurar que los botones se extiendan */
+    }
+  
+    .main-button {
+        width: 100%;
+        max-width: 100%; /* Eliminar límite en móviles */
+        padding: 12px;
+    }
 }
 
 .action-button {
@@ -270,8 +324,8 @@ header h1 {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 50px;
-    height: 50px;
+    width: 125px;
+    height: 125px;
     z-index: 10;
 }
 
@@ -363,11 +417,11 @@ header h1 {
     justify-content: center;
     align-items: center;
     z-index: 1000;
-    background: transparent; /* Fondo transparente para evitar recuadros negros */
+    background: transparent;
 }
 
 .modal-content {
-    background: #1e1e1e; /* Fondo oscuro movido aquí */
+    background: #1e1e1e;
     padding: 20px;
     border-radius: 10px;
     width: 100%;
@@ -459,9 +513,142 @@ footer {
     text-align: center;
 }
 
+.kick-list {
+    margin-top: 10px;
+    background-color: #2a2a2a;
+    padding: 10px;
+    border-radius: 5px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+  
+.kick-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #333;
+    padding: 8px 15px;
+    border-radius: 5px;
+    margin-bottom: 5px;
+}
+  
+.kick-player-button {
+    background-color: #f44336;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: background-color 0.3s;
+}
+  
+.kick-player-button:hover {
+    background-color: #d32f2f;
+}
+
+.kick-button {
+    background-color: #ff4444; /* Asegurar que sea rojo */
+}
+  
+.kick-button:hover {
+    background-color: #cc3333; /* Igual que el otro botón */
+}
+
+.manage-player-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    background: #333; /* Gris claro (ajusta si es otro color) */
+    margin-bottom: 10px; /* Más separación entre jugadores */
+    border-radius: 5px;
+    color: #fff;
+}
+
+.manage-player-item button.toggle-status {
+    background-color: #ff4444;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.manage-player-item button.toggle-status:hover {
+    background-color: #cc3333;
+}
+
+.manage-player-item button.toggle-status.revive {
+    background-color: #4caf50; /* Verde para "Revivir" */
+}
+
+.manage-player-item button.toggle-status.revive:hover {
+    background-color: #388e3c;
+}
+
+#closeManagePlayers {
+    margin-top: 20px; /* Más separación del botón "Cerrar" */
+    background-color: #ff4444;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+#closeManagePlayers:hover {
+    background-color: #cc3333;
+}
+
+.cancel-button {
+    background-color: #ff4444; /* Rojo diferente para distinguir */
+}
+  
+.cancel-button:hover {
+    background-color: #cc3333;
+}
+
+.host-player-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background-color: #333;
+    padding: 10px 15px;
+    border-radius: 5px;
+    margin-bottom: 5px;
+}
+  
+.host-player-item img.player-icon {
+    width: 40px;
+    height: 40px;
+    margin-right: 10px;
+}
+  
+.host-player-item span {
+    flex-grow: 1;
+    color: #fff;
+}
+  
+.host-player-item button.toggle-status {
+    background-color: #ff4444;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+  
+.host-player-item button.toggle-status:hover {
+    background-color: #cc3333;
+}
+
 @media (max-width: 768px) {
     .container {
         padding: 10px;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch; /* Suavizar scroll en iOS */
     }
     .game-container, .host-container {
         flex-direction: column;
