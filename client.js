@@ -201,7 +201,7 @@ function initializeGameEvents() {
     const advancePhaseButton = document.getElementById('hostAdvancePhase');
     const managePlayersButton = document.getElementById('hostManagePlayers');
     const showRolesButton = document.getElementById('hostShowRoles');
-    const returnToLobbyButton = document.getElementById('hostReturnToLobby'); // Nuevo botón
+    const returnToLobbyButton = document.getElementById('hostReturnToLobby');
 
     console.log('Inicializando eventos del host:', { advancePhaseButton, managePlayersButton, showRolesButton, returnToLobbyButton });
 
@@ -227,7 +227,7 @@ function initializeGameEvents() {
     }
 
     if (returnToLobbyButton) {
-      returnToLobbyButton.removeEventListener('click', playAgain); // Reutilizamos playAgain
+      returnToLobbyButton.removeEventListener('click', playAgain);
       returnToLobbyButton.addEventListener('click', playAgain);
     } else {
       console.error('No se encontró #hostReturnToLobby');
@@ -266,7 +266,7 @@ function handleGameCreated(data) {
   kickContainer.innerHTML = `
     <div class="button-container">
       <button id="startButton" class="main-button"><i class="fas fa-play"></i> Comenzar partida</button>
-      <button id="kickButton" class="main-button kick-button">Expulsar</button>
+      <button id="kickButton" class="main-button kick-button"><i class="fas fa-door-open"></i> Expulsar</button>
       <button id="cancelButton" class="main-button cancel-button"><i class="fas fa-times"></i> Cancelar Sala</button>
     </div>
     <div id="kickList" class="kick-list" style="display: none;"></div>
@@ -361,7 +361,7 @@ function handleGameReset(data) {
     kickContainer.innerHTML = `
       <div class="button-container">
         <button id="startButton" class="main-button"><i class="fas fa-play"></i> Comenzar partida</button>
-        <button id="kickButton" class="main-button kick-button">Expulsar</button>
+        <button id="kickButton" class="main-button kick-button"><i class="fas fa-door-open"></i> Expulsar</button>
         <button id="cancelButton" class="main-button cancel-button"><i class="fas fa-times"></i> Cancelar Sala</button>
       </div>
       <div id="kickList" class="kick-list" style="display: none;"></div>
@@ -572,8 +572,8 @@ function handleGameOver(data) {
   document.getElementById('gameOverMessage').innerHTML = message;
   document.getElementById('gameOverRoles').innerHTML = rolesInfo;
   showScreen('gameOver');
-  localStorage.removeItem('gameSession');
-  localStorage.removeItem('playerId');
+  //localStorage.removeItem('gameSession');
+  //localStorage.removeItem('playerId');
 
   // Mostrar el botón "Jugar de nuevo" solo para el anfitrión
   const playAgainButton = document.getElementById('playAgainButton');
@@ -851,7 +851,13 @@ function startGame() {
 }
 
 function playAgain() {
-  if (gameId) socket.emit('playAgain', gameId);
+  if (gameId) {
+    socket.emit('playAgain', gameId);
+    console.log('Emitiendo playAgain con gameId:', gameId); // Para depuración
+  } else {
+    console.error('No se puede reiniciar: gameId no está definido');
+    showMessage('Error: No se pudo volver al lobby. Intenta crear una nueva partida.', 'error');
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -862,33 +868,30 @@ document.addEventListener('DOMContentLoaded', () => {
   const createGameForm = document.getElementById('createGameForm');
   const joinGameForm = document.getElementById('joinGameForm');
 
-  function showCreateForm(e) {
-    e.preventDefault(); // Prevenir comportamiento nativo
+  function showCreateForm() {
     createGameForm.style.display = 'block';
     joinGameForm.style.display = 'none';
-    console.log('Botón Crear partida tocado'); // Depuración
   }
 
-  function showJoinForm(e) {
-    e.preventDefault(); // Prevenir comportamiento nativo
+  function showJoinForm() {
     createGameForm.style.display = 'none';
     joinGameForm.style.display = 'block';
-    console.log('Botón Unirse a partida tocado'); // Depuración
   }
 
-  // Añadir eventos click y touchstart para máxima compatibilidad
   createGameButton.addEventListener('click', showCreateForm);
-  createGameButton.addEventListener('touchstart', showCreateForm, { passive: false });
+  createGameButton.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    showCreateForm();
+  });
+
   joinGameButton.addEventListener('click', showJoinForm);
-  joinGameButton.addEventListener('touchstart', showJoinForm, { passive: false });
+  joinGameButton.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    showJoinForm();
+  });
 
   document.getElementById('submitCreateGame').addEventListener('click', createGame);
   document.getElementById('submitJoinGame').addEventListener('click', joinGame);
-  document.getElementById('startButton').addEventListener('click', startGame);
-  document.getElementById('playAgainButton').addEventListener('click', playAgain);
-  document.getElementById('hostAdvancePhase').addEventListener('click', () => socket.emit('advancePhase', gameId));
-  document.getElementById('hostManagePlayers').addEventListener('click', showManagePlayers);
-  document.getElementById('hostShowRoles').addEventListener('click', showPlayerRoles);
-  document.getElementById('roleCard').addEventListener('click', flipCard);
+  document.getElementById('playAgainButton').addEventListener('click', playAgain); // Ya está aquí
   document.getElementById('roleOverlay').addEventListener('click', hideRoleOverlay);
 });
