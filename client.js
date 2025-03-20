@@ -19,6 +19,8 @@ function connectToServer() {
   
   socket.on('connect', () => {
     console.log('Conectado al servidor con socket.id:', socket.id);
+    playerId = localStorage.getItem('playerId') || socket.id;
+    socket.playerId = playerId; // Establecer explícitamente
     restoreOrStartSession();
     if (playerId && gameId && isHost) socket.emit('updateHostSocket', { gameId, playerId });
   });
@@ -31,10 +33,20 @@ function connectToServer() {
   socket.on('reconnect', () => {
     console.log('Reconectado al servidor con socket.id:', socket.id);
     restoreOrStartSession();
+    console.log('Estado tras reconexión, hasVoted:', hasVoted); // Log para depurar
     if (playerId && gameId && isHost) {
       socket.emit('updateHostSocket', { gameId, playerId });
-      console.log('Actualizando socket del host tras reconexión:', { gameId, playerId });
     }
+  });
+
+  socket.on('kickedFromGame', (data) => {
+    showMessage(data.message, 'error'); // Mostrar "Has sido expulsado de la sala" en rojo
+    localStorage.removeItem('gameSession'); // Limpiar sesión
+    localStorage.removeItem('playerId');
+    gameId = null;
+    playerId = null;
+    isHost = false;
+    showScreen('home'); // Volver a la pantalla principal
   });
 
   socket.on('playerKicked', (data) => {
@@ -42,6 +54,16 @@ function connectToServer() {
     handleUpdatePlayers(data.players);
   });
   
+  socket.on('resetVotes', () => {
+    hasVoted = false;
+    localStorage.setItem('hasVoted', 'false');
+    resetActionButtons();
+    const gameplayArea = document.querySelector('.gameplay-area');
+    if (gameplayArea) {
+      gameplayArea.classList.remove('locked');
+    }
+  });
+
   socket.on('gameCancelled', () => {
     localStorage.removeItem('gameSession');
     localStorage.removeItem('playerId');
@@ -52,7 +74,12 @@ function connectToServer() {
     showMessage('La sala ha sido cancelada por el anfitrión', 'warning');
   });
 
-
+  socket.on('showMessage', (data) => {
+    // Solo mostrar si no es un mensaje de nightEnd o dayEnd (opcional, según otros usos)
+    if (!data.message.includes('muerto esta noche') && !data.message.includes('eliminado')) {
+      showMessage(data.message, data.type);
+    }
+  });
   socket.on('gameCreated', handleGameCreated);
   socket.on('gameJoined', handleGameJoined);
   socket.on('error', handleError);
@@ -111,11 +138,13 @@ function connectToServer() {
     });
   });
   socket.on('voteUpdate', handleVoteUpdate);
-  socket.on('dayEnd', (data) => {
-    showMessage(data.message, 'error');
-  });
   socket.on('nightEnd', (data) => {
-    showMessage(data.message, 'error');
+    console.log('Recibido nightEnd en cliente:', JSON.stringify(data)); // Log para verificar
+    handleNightEnd(data);
+  });
+  socket.on('dayEnd', (data) => {
+    console.log('Recibido dayEnd en cliente:', JSON.stringify(data)); // Log para verificar
+    handleDayEnd(data);
   });
 }
 
@@ -139,6 +168,7 @@ function saveSession() {
   if (playerId && gameId) {
     localStorage.setItem('gameSession', JSON.stringify({ playerId, gameId, isHost }));
     localStorage.setItem('playerId', playerId);
+    localStorage.setItem('hasVoted', hasVoted); // Guardar estado de votación
   }
 }
 
@@ -297,15 +327,23 @@ function handleSessionRestored(data) {
   playerRole = data.role;
   isHost = data.isHost;
   isAlive = data.alive;
+  hasVoted = data.hasVoted || false;
+  console.log('Sesión restaurada, hasVoted:', hasVoted);
+  localStorage.setItem('hasVoted', hasVoted.toString());
   cardFlipped = false;
   saveSession();
 
   console.log('Sesión restaurada:', { gameId, playerId, isHost, socketId: socket.id });
+  console.log('Evaluando estado:', { isHost, gameState: data.state.state });
 
   document.getElementById('gameCodeDisplay').textContent = gameId;
 
+  // Forzar lobby si el estado no es 'playing' o no está definido
+  const isLobbyState = !data.state.state || data.state.state === 'lobby';
+
   if (isHost) {
     if (data.state.state === 'lobby') {
+      console.log('Host en lobby: mostrando #lobbyScreen');
       showScreen('lobby');
       const kickContainer = document.getElementById('kickContainer');
       kickContainer.style.display = 'block';
@@ -320,7 +358,9 @@ function handleSessionRestored(data) {
       document.getElementById('startButton').addEventListener('click', startGame);
       document.getElementById('kickButton').addEventListener('click', toggleKickList);
       document.getElementById('cancelButton').addEventListener('click', cancelGame);
+      handleUpdatePlayers(data.state.players);
     } else {
+      console.log('Host en juego: mostrando #hostScreen');
       showScreen('host');
       handleHostGameStarted({ players: data.state.players });
       handleUpdateGameState(data.state);
@@ -329,10 +369,12 @@ function handleSessionRestored(data) {
     // Actualizar el socket del host en el servidor
     socket.emit('updateHostSocket', { gameId, playerId });
   } else if (data.state.state === 'lobby') {
+    console.log('Jugador no host en lobby: mostrando #lobbyScreen');
     showScreen('lobby');
     const kickContainer = document.getElementById('kickContainer');
     kickContainer.style.display = 'none';
     kickContainer.innerHTML = '';
+    handleUpdatePlayers(data.state.players);
   } else {
     showScreen('game');
     handleRoleAssigned({ role: playerRole });
@@ -342,8 +384,13 @@ function handleSessionRestored(data) {
     document.getElementById('playerRole').textContent = '-';
     document.getElementById('roleDescription').textContent = 'Haz clic en la carta para voltearla';
     initializeGameEvents();
+    if (hasVoted && data.state.time === 'day') {
+      lockGameplayArea();
+      disablePlayerSelection();
+    }
   }
   showMessage('Sesión restaurada con éxito', 'success');
+  updateControls(data.state.time);
 }
 
 function handleGameReset(data) {
@@ -383,8 +430,11 @@ function handlePlayerReconnected(data) {
 }
 
 function handleError(data) {
+  console.log('Error recibido:', data);
   if (data.type === 'insufficientPlayers') {
     showMessage(data.message, 'error'); // Solo mostrar notificación
+  } else if (data.message === 'Ya has votado en esta ronda. No puedes cambiar tu voto.') {
+    showMessage(data.message, 'warning'); // Mostrar mensaje sin desconectar
   } else {
     showMessage(data.message, 'error');
     localStorage.removeItem('gameSession');
@@ -463,19 +513,16 @@ function handleCardFlipped() {
 }
 
 function handleUpdateGameState(state) {
+  console.log('Recibido updateGameState:', state);
   if (isHost) {
-    showScreen('host');
+    if (state.state !== 'lobby') {
+      showScreen('host');
+    }
     document.getElementById('hostGameDay').textContent = state.day;
     document.getElementById('hostGameTime').textContent = translateTime(state.time);
-    //MIRAR:
-    console.log(' PREVIO Jugadores recibidos en updateGameState:', state.players);
     updateHostPlayersList(state.players);
-    console.log(' POSTERIOR Jugadores recibidos en updateGameState:', state.players);
-    //updateHostPlayersList(data.players);
   } else {
-    console.log(' PREVIO Jugadores recibidos en updateGameState:', state.players);
     handleUpdatePlayers(state.players);
-    console.log(' POSTERIOR Jugadores recibidos en updateGameState:', state.players);
     document.getElementById('gameDay').textContent = state.day;
     document.getElementById('gameTime').textContent = translateTime(state.time);
     isAlive = state.players.find(p => p.id === playerId)?.alive ?? true;
@@ -491,13 +538,19 @@ function handleUpdateGameState(state) {
         if (player.id === playerId) playerItem.classList.add('self');
         playerItem.textContent = player.name;
         playerItem.dataset.id = player.id;
-        if (state.time === 'day' && isAlive && player.id !== playerId) {
+        if (state.time === 'day' && isAlive && player.id !== playerId && !hasVoted) {
           playerItem.addEventListener('click', () => selectPlayer(player.id, player.name));
+        } else {
+          playerItem.classList.add('disabled');
         }
         playersList.appendChild(playerItem);
       }
     });
 
+    if (hasVoted && state.time === 'day') {
+      lockGameplayArea(); // Asegurar bloqueo si ya votó
+      disablePlayerSelection();
+    }
     updateControls(state.time);
   }
 }
@@ -519,22 +572,15 @@ function handleVoteUpdate(data) {
 }
 
 function handleNightEnd(data) {
-  if (data.deadPlayers && data.deadPlayers.length > 0) {
-    data.deadPlayers.forEach(playerName => {
-      showMessage(`${playerName} ha muerto durante la noche.`, 'error');
-    });
-  } else {
-    showMessage('Nadie ha muerto esta noche.', 'info');
-  }
+  console.log('Recibido nightEnd en cliente:', JSON.stringify(data));
+  showMessage(data.message, data.type);
 }
 
 function handleDayEnd(data) {
-  if (data.eliminatedPlayer) {
-    showMessage(`El pueblo ha decidido eliminar a ${data.eliminatedPlayer}.`, 'error');
-  } else {
-    showMessage('El pueblo no ha eliminado a nadie hoy.', 'info');
-  }
+  console.log('Recibido dayEnd en cliente:', JSON.stringify(data));
+  showMessage(data.message, data.type);
   resetActionButtons();
+  console.log('Estado de votación tras resetActionButtons:', { hasVoted });
 }
 
 function updateHostPlayersList(players) {
@@ -590,14 +636,23 @@ function showScreen(screenId) {
 }
 
 function showMessage(message, type = 'info') {
+  console.log('Mostrando mensaje en cliente:', { message, type });
   const messageContainer = document.getElementById('messageContainer');
+  if (!messageContainer) {
+    console.error('No se encontró #messageContainer en el DOM');
+    return;
+  }
   const messageElement = document.createElement('div');
   messageElement.className = `message ${type}`;
   messageElement.textContent = message;
   messageContainer.appendChild(messageElement);
   setTimeout(() => {
     messageElement.classList.add('fade-out');
-    setTimeout(() => messageContainer.removeChild(messageElement), 1000);
+    setTimeout(() => {
+      if (messageElement.parentNode) {
+        messageContainer.removeChild(messageElement);
+      }
+    }, 1000);
   }, 5000);
 }
 
@@ -640,7 +695,9 @@ function flipCard() {
 }
 
 function updateControls(time) {
+  console.log('Actualizando controles, tiempo:', time, 'hasVoted:', hasVoted);
   const actionButtons = document.getElementById('actionButtons');
+  const gameplayArea = document.querySelector('.gameplay-area');
   actionButtons.innerHTML = '';
 
   if (!isAlive) {
@@ -648,6 +705,7 @@ function updateControls(time) {
     actionText.textContent = 'Estás muerto. No puedes realizar acciones.';
     actionText.className = 'action-text';
     actionButtons.appendChild(actionText);
+    gameplayArea.classList.add('locked');
     return;
   }
 
@@ -661,24 +719,37 @@ function updateControls(time) {
     confirmButton.textContent = 'Confirmar voto';
     confirmButton.className = 'action-button';
     confirmButton.id = 'confirmButton';
-    confirmButton.disabled = hasVoted || !selectedPlayerId; // Deshabilitar si ya votó o no hay selección
+    confirmButton.disabled = hasVoted || !selectedPlayerId;
     confirmButton.onclick = () => {
       if (selectedPlayerId && !hasVoted) confirmVote();
     };
     actionButtons.appendChild(confirmButton);
 
     if (hasVoted) {
-      disablePlayerSelection(); // Asegurarse de que no pueda seleccionar más jugadores
+      lockGameplayArea();
+      disablePlayerSelection();
+    } else {
+      gameplayArea.classList.remove('locked');
+      const players = document.querySelectorAll('.player-item:not(.self)');
+      players.forEach(player => {
+        player.classList.remove('disabled');
+        player.addEventListener('click', () => selectPlayer(player.dataset.id, player.textContent));
+      });
     }
   } else {
     const actionText = document.createElement('div');
     actionText.textContent = 'Es de noche. Espera al día para votar.';
     actionText.className = 'action-text';
     actionButtons.appendChild(actionText);
+    gameplayArea.classList.remove('locked');
   }
 }
 
 function selectPlayer(id, name) {
+  if (hasVoted) {
+    showMessage('Ya has votado en esta ronda. No puedes cambiar tu selección.', 'warning');
+    return;
+  }
   const previousSelected = document.querySelector('.player-item.selected');
   if (previousSelected) previousSelected.classList.remove('selected');
   const playerElement = document.querySelector(`.player-item[data-id="${id}"]`);
@@ -696,15 +767,26 @@ function confirmVote() {
     return;
   }
   if (hasVoted) {
-    showMessage('Ya has votado en esta ronda.', 'error');
+    showMessage('Ya has votado en esta ronda.', 'warning');
     return;
   }
+  console.log('Enviando voto:', { gameId, targetId: selectedPlayerId });
   socket.emit('dayVote', { gameId, targetId: selectedPlayerId });
-  hasVoted = true; // Marcar que el jugador ha votado
+  hasVoted = true;
+  localStorage.setItem('hasVoted', 'true');
   disablePlayerSelection();
-  const confirmButton = document.getElementById('confirmButton');
-  confirmButton.disabled = true; // Deshabilitar el botón
+  lockGameplayArea();
+  const gameplayTime = document.getElementById('gameTime').textContent.toLowerCase() === 'día' ? 'day' : 'night';
+  updateControls(gameplayTime); // Actualizar inmediatamente
   showMessage(`Has votado por ${document.querySelector(`.player-item[data-id="${selectedPlayerId}"]`).textContent}`, 'info');
+}
+
+function lockGameplayArea() {
+  const gameplayArea = document.querySelector('.gameplay-area');
+  if (gameplayArea) {
+    gameplayArea.classList.add('locked');
+    console.log('Gameplay area bloqueada');
+  }
 }
 
 function disablePlayerSelection() {
@@ -719,7 +801,8 @@ function disablePlayerSelection() {
 
 function resetActionButtons() {
   selectedPlayerId = null;
-  hasVoted = false; // Reiniciar el estado de votación
+  hasVoted = false;
+  localStorage.setItem('hasVoted', 'false'); // Reiniciar
   const players = document.querySelectorAll('.player-item');
   players.forEach(player => {
     player.classList.remove('selected');

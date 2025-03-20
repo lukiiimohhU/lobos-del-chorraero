@@ -44,10 +44,11 @@ header h1 {
     opacity: 1;
     transition: opacity 0.5s ease;
 }
-
-.message.info { background-color: #2196F3; }
-.message.success { background-color: #4CAF50; }
-.message.error { background-color: #f44336; }
+  
+.message.info { background-color: #2196F3; } /* Azul */
+.message.success { background-color: #4CAF50; } /* Verde */
+.message.warning { background-color: #efb810; } /* Amarillo */
+.message.error { background-color: #f44336; } /* Rojo */
 
 .message.fade-out {
     opacity: 0;
@@ -148,6 +149,12 @@ header h1 {
     background-color: #333;
     color: white;
 }
+
+.gameplay-area.locked {
+    pointer-events: none; /* Deshabilita todos los clics */
+    opacity: 0.2; /* Efecto visual de bloqueo */
+    cursor: not-allowed; /* Cursor indicando que no se puede interactuar */
+  }
 
 @media (max-width: 768px) {
     .form-container.active {
@@ -354,6 +361,13 @@ header h1 {
 .host-container {
     display: flex;
     gap: 20px;
+}
+
+.host-players-container {
+    flex: 2;
+    background-color: #2a2a2a;
+    padding: 15px;
+    border-radius: 5px;
 }
 
 .host-players {
@@ -618,6 +632,7 @@ footer {
     padding: 10px 15px;
     border-radius: 5px;
     margin-bottom: 5px;
+    width: 100%; /* Opcional: asegura que ocupe todo el ancho disponible */
 }
   
 .host-player-item img.player-icon {
